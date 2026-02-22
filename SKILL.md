@@ -6,7 +6,7 @@ description: >-
   "parallel sandbox", "batch sandbox", "sandbox recipe", "沙盒模式",
   "沙盒用法", "沙盒最佳實踐", mentions sandbox_execute usage patterns,
   or discusses optimizing tool calls with sandbox execution.
-version: 0.1.0
+version: 0.2.0
 tools: sandbox_execute
 ---
 
@@ -33,7 +33,7 @@ Sandbox processes data internally and returns only structured summaries via
 |--------|-------------|-----------------|
 | Read 3+ files → aggregate | Yes | No |
 | Single file read | No | Yes (Read tool) |
-| Batch API calls (same service) | Yes | No |
+| Batch API calls (any endpoint) | Yes | No |
 | Needs MCP tools (Playwright, etc.) | No | Yes (MCP tools) |
 | Multi-step transform → single output | Yes | No |
 | Interactive / needs mid-step decisions | No | Yes (sequential) |
@@ -69,61 +69,66 @@ sandbox #4: Read batch1-3.json → merge → output(final_summary)
 ### Constraints
 
 - No shared state between parallel sandboxes (separate processes)
-- File system IS shared (~/Claude/, /tmp/sandbox-executor/)
+- File system IS shared (any path accessible)
 - Coordinate via files, not memory
 - Each sandbox has ~30s timeout
 
 ## Common Recipes
 
-### Recipe 1: Batch File Scan
+### Recipe 1: Batch Skill Scan
 
 ```python
 # sandbox_execute (python)
 import os, json
 from pathlib import Path
 
+skills_dir = Path(os.path.expanduser("~/.claude/skills"))
 results = []
-for f in sorted(Path(target_dir).glob("**/*.md")):
-    content = f.read_text()
-    results.append({
-        "file": str(f),
-        "lines": len(content.splitlines()),
-        "size": len(content),
-    })
+for d in sorted(skills_dir.iterdir()):
+    if not d.is_dir() or d.name.startswith("."):
+        continue
+    skill_md = d / "SKILL.md"
+    if skill_md.exists():
+        content = skill_md.read_text()
+        results.append({
+            "name": d.name,
+            "lines": len(content.splitlines()),
+            "size": len(content),
+        })
 
-# Save full data to file, return only summary
-with open(out_path, "w") as f:
-    json.dump(results, f, indent=2)
-
-output({"total": len(results), "total_lines": sum(r["lines"] for r in results)})
+output({"total": len(results), "sample": results[:5]})
 ```
 
-### Recipe 2: Batch HTTP (localhost services)
+### Recipe 2: Batch HTTP (any endpoint)
 
 ```python
 # sandbox_execute (python)
-endpoints = ["/api/a", "/api/b", "/api/c"]
-results = {}
-for ep in endpoints:
-    resp = http_get(f"http://localhost:8080{ep}")
-    results[ep] = {"status": resp.get("status"), "size": len(str(resp))}
-output(results)
+# Local services
+local_data = http_get("http://localhost:8080/api/status")
+
+# External APIs also work
+external_data = http_get("https://api.example.com/data")
+
+output({"local": local_data, "external_status": type(external_data).__name__})
 ```
 
-### Recipe 3: Import Script from ~/Claude/
+### Recipe 3: Import Script from Any Path
 
 ```python
 # sandbox_execute (python)
 import os, sys
-# ONLY works for scripts in ~/Claude/ or /tmp/ — NOT ~/.claude/
-sys.path.insert(0, os.path.expanduser("~/Claude/projects/<project>/scripts"))
+
+# Import from ~/.claude/skills/ scripts
+sys.path.insert(0, os.path.expanduser("~/.claude/skills/skill-catalog/scripts"))
+from extract_catalog import extract_skill
+
+# Import from ~/Claude/ project scripts
+sys.path.insert(0, os.path.expanduser("~/Claude/projects/my-project/scripts"))
 from my_script import my_function
 
 result = my_function(args)
 output(result)
 ```
-
-> **Warning**: Scripts in `~/.claude/skills/` are NOT accessible from sandbox. Use `Bash` to run those scripts directly.
 
 ### Recipe 4: Data Transform Pipeline
 
@@ -146,6 +151,20 @@ Path(output_path).write_text(buf.getvalue())
 output({"rows": len(transformed), "saved_to": output_path})
 ```
 
+### Recipe 5: Shell Commands in Sandbox
+
+```python
+# sandbox_execute (python)
+import subprocess, json
+
+# Run shell commands when needed
+result = subprocess.run(
+    ["tesseract", "image.png", "stdout"],
+    capture_output=True, text=True, timeout=20
+)
+output({"ocr_text": result.stdout, "exit_code": result.returncode})
+```
+
 ## Anti-Patterns
 
 | Anti-Pattern | Why Bad | Fix |
@@ -162,54 +181,36 @@ output({"rows": len(transformed), "saved_to": output_path})
 | Helper | Purpose |
 |--------|---------|
 | `output(data)` | Return structured data to LLM (dict, list, str) |
-| `http_get(url)` | GET request (localhost only) |
-| `http_post(url, data)` | POST request (localhost only) |
-| `read_file(path)` | Read file (whitelisted paths) |
-| `write_file(path, content)` | Write file (whitelisted paths) |
+| `http_get(url)` | GET request (any URL) |
+| `http_post(url, data)` | POST request (any URL) |
+| `read_file(path)` | Read file (any path) |
+| `write_file(path, content)` | Write file (any path, auto-makedirs) |
 
 ## Token Savings Reference
 
 | Scale | Traditional | Sandbox | Savings |
 |-------|------------|---------|---------|
 | 5 config files | ~2,500 tok | ~600 tok | 75% |
-| 73 skill files | ~147,000 tok | ~1,550 tok | 99% |
+| 80 skill files | ~160,000 tok | ~1,600 tok | 99% |
 | 10 API calls | ~5,000 tok | ~400 tok | 92% |
 
-## Known Constraints (Verified 2026-02-22)
+## Execution Model (v2.0)
 
-These constraints were verified by real execution tests:
-
-### 1. Filesystem — Strict Whitelist
-- **Readable/Writable**: `~/Claude/`, `/tmp/sandbox-executor/`
-- **Blocked**: EVERYTHING else, including `~/.claude/` (skills, agents, config are NOT accessible)
-
-### 2. Network — Localhost Only
-- `http_get()` / `http_post()` restricted to `localhost` / `127.0.0.1`
-- External URLs (APIs, websites, CDNs) are blocked with connection error
-- Pulso services (ports 8840-8842) and other local services work fine
-
-### 3. Security Keyword Blocklist
-- Code containing these keywords is rejected before execution: `subprocess`, `os.system`, `eval`, `exec`, `__import__`
-- Even as STRING LITERALS (e.g., searching for the word "subprocess" in text) — triggers the blocklist
-- Workaround for string matching: use character-by-character construction or avoid the keyword entirely
-
-### 4. No External Libraries
-- `requests` is NOT available (use SDK `http_get`/`http_post` instead)
-- Available: `Pillow`, `openpyxl`, `pypdf`, `pdfplumber`, `python-pptx`, `python-docx`, stdlib
-- No package installation at runtime
-
-### 5. Execution Model
-- Each call = fresh process (no state between calls)
+- Each call = fresh Python/JS subprocess
 - Parallel calls share filesystem but not memory
 - 30s timeout per call (max 60s)
+- 50KB output cap (stdout/stderr)
+- All Python stdlib available (including subprocess, os, etc.)
+- External libs: Pillow, openpyxl, pypdf, pdfplumber, python-pptx, python-docx
+- `requests` NOT available (use SDK `http_get`/`http_post` instead)
+- No package installation at runtime
 
 ## Quick Reference
 
 ```
-When to sandbox:  3+ files in ~/Claude/, batch localhost APIs, data transforms
-When NOT to:      1 file, external HTTP, ~/.claude/ paths, subprocess tools, interactive
+When to sandbox:  3+ files, batch APIs, data transforms, shell commands
+When NOT to:      1 file, needs MCP tools (Playwright etc.), interactive decisions
 Parallel:         Multiple sandbox_execute in one message
-Import scripts:   ONLY from ~/Claude/ paths (NOT ~/.claude/ — use Bash for those)
+Import scripts:   Any path (~/.claude/skills/, ~/Claude/, /tmp/)
 Always:           imports first, makedirs before write, output() summary only
-Constraints:      No subprocess, localhost-only HTTP, ~/Claude/ + /tmp/ paths only
 ```
