@@ -1,13 +1,9 @@
 ---
 name: sandbox-patterns
-description: >-
-  This skill should be used when the user asks about "sandbox patterns",
-  "sandbox best practices", "how to use sandbox", "sandbox optimization",
-  "parallel sandbox", "batch sandbox", "sandbox recipe", "沙盒模式",
-  "沙盒用法", "沙盒最佳實踐", mentions sandbox_execute usage patterns,
-  or discusses optimizing tool calls with sandbox execution.
+description: "sandbox, patterns, best, practices, optimization, parallel, batch"
 version: 0.2.0
 tools: sandbox_execute
+disable-model-invocation: true
 ---
 
 # Sandbox Patterns
@@ -122,8 +118,8 @@ import os, sys
 sys.path.insert(0, os.path.expanduser("~/.claude/skills/skill-catalog/scripts"))
 from extract_catalog import extract_skill
 
-# Import from ~/Claude/ project scripts
-sys.path.insert(0, os.path.expanduser("~/Claude/projects/my-project/scripts"))
+# Import from ~/workshop/ project scripts
+sys.path.insert(0, os.path.expanduser("~/workshop/scripts"))
 from my_script import my_function
 
 result = my_function(args)
@@ -211,6 +207,6 @@ output({"ocr_text": result.stdout, "exit_code": result.returncode})
 When to sandbox:  3+ files, batch APIs, data transforms, shell commands
 When NOT to:      1 file, needs MCP tools (Playwright etc.), interactive decisions
 Parallel:         Multiple sandbox_execute in one message
-Import scripts:   Any path (~/.claude/skills/, ~/Claude/, /tmp/)
+Import scripts:   Any path (~/.claude/skills/, ~/workshop/, /tmp/)
 Always:           imports first, makedirs before write, output() summary only
 ```
