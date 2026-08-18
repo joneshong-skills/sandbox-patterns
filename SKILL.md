@@ -3,7 +3,6 @@ name: sandbox-patterns
 description: "sandbox, patterns, best, practices, optimization, parallel, batch"
 version: 0.2.0
 tools: sandbox_execute
-disable-model-invocation: true
 ---
 
 # Sandbox Patterns
