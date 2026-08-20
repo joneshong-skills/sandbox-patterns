@@ -117,8 +117,8 @@ import os, sys
 sys.path.insert(0, os.path.expanduser("~/.claude/skills/skill-catalog/scripts"))
 from extract_catalog import extract_skill
 
-# Import from ~/workshop/ project scripts
-sys.path.insert(0, os.path.expanduser("~/workshop/scripts"))
+# Import from your own project's scripts
+sys.path.insert(0, os.path.expanduser("~/your-project/scripts"))
 from my_script import my_function
 
 result = my_function(args)
@@ -206,6 +206,6 @@ output({"ocr_text": result.stdout, "exit_code": result.returncode})
 When to sandbox:  3+ files, batch APIs, data transforms, shell commands
 When NOT to:      1 file, needs MCP tools (Playwright etc.), interactive decisions
 Parallel:         Multiple sandbox_execute in one message
-Import scripts:   Any path (~/.claude/skills/, ~/workshop/, /tmp/)
+Import scripts:   Any path (~/.claude/skills/, your own project dirs, /tmp/)
 Always:           imports first, makedirs before write, output() summary only
 ```
